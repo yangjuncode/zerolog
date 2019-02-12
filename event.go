@@ -21,12 +21,13 @@ var eventPool = &sync.Pool{
 // Event represents a log event. It is instanced by one of the level method of
 // Logger and finalized by the Msg or Msgf method.
 type Event struct {
-	buf   []byte
-	w     LevelWriter
-	level Level
-	done  func(msg string)
-	stack bool   // enable error stack trace
-	ch    []Hook // hooks from context
+	buf    []byte
+	w      LevelWriter
+	level  Level
+	done   func(msg string)
+	stack  bool     // enable error stack trace
+	ch     []Hook   // hooks from context
+	filter []string //filter for log on/off,call stack on/off
 }
 
 func putEvent(e *Event) {
@@ -62,6 +63,7 @@ func newEvent(w LevelWriter, level Level) *Event {
 	e.buf = enc.AppendBeginMarker(e.buf)
 	e.w = w
 	e.level = level
+	e.filter = nil
 	return e
 }
 
@@ -118,6 +120,10 @@ func (e *Event) Msgf(format string, v ...interface{}) {
 }
 
 func (e *Event) msg(msg string) {
+	if len(e.filter) > 0 {
+		e.Strs("fi", e.filter)
+	}
+
 	if len(e.ch) > 0 {
 		e.ch[0].Run(e, e.level, msg)
 		if len(e.ch) > 1 {
@@ -702,4 +708,22 @@ func (e *Event) MACAddr(key string, ha net.HardwareAddr) *Event {
 	}
 	e.buf = enc.AppendMACAddr(enc.AppendKey(e.buf, key), ha)
 	return e
+}
+
+func (e *Event) Filter(filter string) *Event {
+	if e == nil {
+		return e
+	}
+	on, saved := isYlogFilterOnAndSaved(filter)
+
+	if on {
+		e.filter = append(e.filter, filter)
+		return e
+	} else {
+		if !saved {
+			saveYlogFilter(filter)
+		}
+		return nil
+	}
+
 }
